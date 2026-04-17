@@ -2,6 +2,10 @@
 
 A full-stack platform for training a **Unitree Go2** quadruped robot via Deep Reinforcement Learning (PPO) in NVIDIA Isaac Lab, with a FastAPI backend for orchestration and a React dashboard for real-time monitoring.
 
+[![Demo Video](https://img.youtube.com/vi/Xhlh6Zme6dA/maxresdefault.jpg)](https://youtu.be/Xhlh6Zme6dA)
+
+▶️ **[Watch the Demo](https://youtu.be/Xhlh6Zme6dA)**
+
 ## Architecture
 
 ```
