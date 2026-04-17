@@ -24,6 +24,14 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+# Pre-import h5py before Kit runtime loads — Kit's DLL search path shadows
+# h5py's bundled HDF5 DLLs, causing "DLL load failed" on Windows.
+if sys.platform == "win32":
+    try:
+        import h5py  # noqa: F401
+    except ImportError:
+        pass
+
 # --------------------------------------------------------------------------- #
 # 1. Parse CLI & launch the simulator BEFORE any Isaac Lab imports            #
 # --------------------------------------------------------------------------- #
@@ -121,7 +129,6 @@ def main():
         agent_cfg.experiment_name = f"custom_{robot_meta.name}"
 
         # Register a temporary task for gymnasium
-        import gymnasium as gym
         _custom_task_id = f"Custom-{robot_meta.name}-v0"
         if _custom_task_id not in [spec.id for spec in gym.registry.values()]:
             gym.register(

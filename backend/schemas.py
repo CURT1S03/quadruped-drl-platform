@@ -29,6 +29,7 @@ class TrainingStatusResponse(BaseModel):
     iteration: int = 0
     max_iterations: int = 0
     log_dir: str | None = None
+    error_message: str | None = None
 
 
 class RunSummary(BaseModel):

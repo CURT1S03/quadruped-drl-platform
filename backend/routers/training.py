@@ -32,6 +32,31 @@ def set_services(sim_manager: SimManager, telemetry: TelemetryCollector):
     _sim_manager = sim_manager
     _telemetry = telemetry
 
+    # Register exit callback to update DB when subprocess dies
+    def _on_subprocess_exit(run_id: int, exit_code: int | None, error: str | None):
+        import asyncio
+        from backend.db.database import async_session
+
+        async def _update():
+            async with async_session() as session:
+                status = "completed" if exit_code == 0 else "failed"
+                await crud.update_run_status(
+                    session, run_id, status, finished_at=datetime.utcnow()
+                )
+                await session.commit()
+                logger.info(f"Run {run_id} marked as {status} (exit code {exit_code})")
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_update())
+            else:
+                loop.run_until_complete(_update())
+        except Exception as e:
+            logger.error(f"Failed to update run {run_id} on exit: {e}")
+
+    sim_manager._on_exit = _on_subprocess_exit
+
 
 @router.post("/start", response_model=TrainingStatusResponse)
 async def start_training(
@@ -96,7 +121,7 @@ async def start_training(
             task=req.task,
             num_envs=req.num_envs,
             max_iterations=req.max_iterations,
-            headless=req.headless,
+            headless=req.headless,  # Non-headless may crash on some GPUs (Vulkan)
             on_output=on_output,
             robot_config=robot_config_path,
             terrain_config=terrain_config,
@@ -155,8 +180,8 @@ async def get_status():
         iteration=_telemetry.current_iteration,
         max_iterations=_telemetry.max_iterations,
         log_dir=_sim_manager.log_dir,
+        error_message=_sim_manager.last_error,
     )
-
 
 @router.get("/runs", response_model=list[RunSummary])
 async def list_runs(

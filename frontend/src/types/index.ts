@@ -20,6 +20,7 @@ export interface TrainingStatusResponse {
   iteration: number;
   max_iterations: number;
   log_dir: string | null;
+  error_message: string | null;
 }
 
 export interface RunSummary {

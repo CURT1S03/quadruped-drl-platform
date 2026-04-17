@@ -40,6 +40,11 @@ class SimManager:
         self._on_output: Callable[[str], None] | None = None
         self._reader_task: asyncio.Task | None = None
         self._headless: bool = True
+        self._last_error: str | None = None
+        self._last_exit_code: int | None = None
+        self._last_output_lines: list[str] = []
+        self._training_completed: bool = False
+        self._on_exit: Callable[[int, int | None, str | None], None] | None = None
 
     @property
     def state(self) -> SimState:
@@ -52,6 +57,14 @@ class SimManager:
     @property
     def log_dir(self) -> str | None:
         return self._log_dir
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def last_exit_code(self) -> int | None:
+        return self._last_exit_code
 
     def start_training(
         self,
@@ -134,11 +147,14 @@ class SimManager:
         self._log_dir = resolved_log_dir
         self._on_output = on_output
         self._headless = headless
+        self._last_error = None
+        self._last_exit_code = None
+        self._last_output_lines = []
+        self._training_completed = False
 
         # Start async reader for stdout
-        if on_output:
-            loop = asyncio.get_event_loop()
-            self._reader_task = loop.create_task(self._read_output())
+        loop = asyncio.get_event_loop()
+        self._reader_task = loop.create_task(self._read_output())
 
         return resolved_log_dir
 
@@ -205,7 +221,8 @@ class SimManager:
             self._process.kill()
             self._process.wait()
 
-        self._cleanup()
+        run_id = self._current_run_id
+        self._cleanup(run_id=run_id, exit_code=self._process.returncode if self._process else None)
 
     def poll(self) -> int | None:
         """Check if subprocess has exited. Returns exit code or None if still running."""
@@ -213,13 +230,39 @@ class SimManager:
             return None
         rc = self._process.poll()
         if rc is not None and self._state not in (SimState.IDLE, SimState.STOPPING):
-            self._cleanup()
+            run_id = self._current_run_id
+            self._last_exit_code = rc
+
+            # Isaac Sim often exits with code 1 due to stderr warnings even on
+            # successful training. Check if training completed via the telemetry
+            # marker or a Traceback in output to distinguish real failures.
+            has_traceback = any("Traceback" in line for line in self._last_output_lines)
+            if self._training_completed and not has_traceback:
+                # Training finished fine — treat as success
+                logger.info(f"Subprocess exited with code {rc} for run {run_id} (training completed successfully)")
+                self._last_error = None
+                self._cleanup(run_id=run_id, exit_code=0)
+            elif rc != 0 and not self._training_completed:
+                tail = self._last_output_lines[-20:]
+                self._last_error = "\n".join(tail) if tail else f"Process exited with code {rc}"
+                logger.error(f"Subprocess exited with code {rc} for run {run_id}")
+                for line in tail:
+                    logger.error(f"  | {line}")
+                self._cleanup(run_id=run_id, exit_code=rc)
+            else:
+                self._cleanup(run_id=run_id, exit_code=rc)
         return rc
 
-    def _cleanup(self):
+    def _cleanup(self, run_id: int | None = None, exit_code: int | None = None):
         """Reset state after subprocess exits."""
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
+        # Fire exit callback so the DB record can be updated
+        if self._on_exit and run_id is not None:
+            try:
+                self._on_exit(run_id, exit_code, self._last_error)
+            except Exception as e:
+                logger.error(f"on_exit callback failed: {e}")
         self._process = None
         self._state = SimState.IDLE
         self._current_run_id = None
@@ -244,25 +287,47 @@ class SimManager:
                     break
                 line_count += 1
                 line = line.strip()
-                if line and self._on_output:
-                    self._on_output(line)
+                if line:
+                    # Keep last 50 lines for error diagnosis
+                    self._last_output_lines.append(line)
+                    if len(self._last_output_lines) > 50:
+                        self._last_output_lines.pop(0)
+                    # Detect successful training completion
+                    if "training_complete" in line or "Training complete" in line:
+                        self._training_completed = True
+                    if self._on_output:
+                        self._on_output(line)
         except asyncio.CancelledError:
             logger.info(f"_read_output: cancelled after {line_count} lines")
         except Exception as e:
             logger.error(f"Error reading subprocess output after {line_count} lines: {e}")
+        finally:
+            # Trigger poll to detect exit and update state
+            self.poll()
 
     def _resolve_python(self) -> list[str]:
-        """Resolve the Isaac Lab Python executable as a command list."""
-        # Isaac Lab provides isaaclab.bat / isaaclab.sh wrapper
-        # On Windows, .bat files must be invoked via cmd /c for subprocess.Popen
+        """Resolve the Isaac Lab Python executable as a command list.
+
+        Priority:
+        1. Conda env python (if CONDA_PREFIX is set via conda_python_path setting)
+        2. isaaclab _isaac_sim/python.bat (standalone symlink)
+        3. Isaac Sim standalone python.bat
+        """
+        # 1. Prefer conda env Python (pip-installed Isaac Sim)
+        conda_python = settings.conda_python_path
+        if conda_python and Path(conda_python).exists():
+            logger.info(f"Using conda Python: {conda_python}")
+            return [str(conda_python)]
+
+        # 2. Isaac Lab bundled python.bat / python.sh
         if sys.platform == "win32":
-            isaaclab_bat = Path(settings.isaaclab_path) / "isaaclab.bat"
-            if isaaclab_bat.exists():
-                return ["cmd", "/c", str(isaaclab_bat), "-p"]
-            # Fallback: use Isaac Sim's python.bat
+            isaac_python = Path(settings.isaaclab_path) / "_isaac_sim" / "python.bat"
+            if isaac_python.exists():
+                return ["cmd", "/c", str(isaac_python)]
+            # 3. Fallback: use Isaac Sim's python.bat
             return ["cmd", "/c", str(Path(settings.isaacsim_path) / "python.bat")]
         else:
-            isaaclab_sh = Path(settings.isaaclab_path) / "isaaclab.sh"
-            if isaaclab_sh.exists():
-                return [str(isaaclab_sh), "-p"]
+            isaac_python = Path(settings.isaaclab_path) / "_isaac_sim" / "python.sh"
+            if isaac_python.exists():
+                return [str(isaac_python)]
             return [str(Path(settings.isaacsim_path) / "python.sh")]

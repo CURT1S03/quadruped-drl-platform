@@ -61,6 +61,16 @@ export function Dashboard() {
             />
           </div>
         )}
+
+        {/* Error banner */}
+        {status?.error_message && (
+          <div className="mt-2 rounded border border-red-800 bg-red-900/30 px-3 py-2">
+            <p className="text-xs font-medium text-red-400">Training subprocess failed:</p>
+            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap text-xs text-red-300">
+              {status.error_message}
+            </pre>
+          </div>
+        )}
       </header>
 
       {/* Main grid */}

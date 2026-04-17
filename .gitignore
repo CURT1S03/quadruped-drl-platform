@@ -1,6 +1,7 @@
 # Logs & training outputs
 logs/runs/
 logs/platform.db
+*.log
 *.pt
 *.onnx
 

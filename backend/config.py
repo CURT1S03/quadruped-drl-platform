@@ -9,18 +9,25 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    isaacsim_path: str = r"a:\IsaacSim\isaac-sim-standalone-5.1.0-windows-x86_64"
-    isaaclab_path: str = r"A:\IsaacLab"
+    isaacsim_path: str = r"A:\Projects\IsaacSim\isaac-sim-standalone-5.1.0-windows-x86_64"
+    isaaclab_path: str = r"A:\Projects\IsaacLab"
+    conda_python_path: str = ""
     project_root: Path = Path(__file__).resolve().parent.parent
 
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
-    database_url: str = "sqlite+aiosqlite:///./logs/platform.db"
+    database_url: str = ""
 
     default_num_envs: int = 4096
     default_max_iterations: int = 2000
     default_checkpoint_interval: int = 500
     log_dir: Path = Path("logs/runs")
+
+    def model_post_init(self, __context):
+        if not self.database_url:
+            db_path = self.project_root / "logs" / "platform.db"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.database_url = f"sqlite+aiosqlite:///{db_path}"
 
     class Config:
         env_file = ".env"

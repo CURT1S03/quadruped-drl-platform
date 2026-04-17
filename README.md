@@ -158,3 +158,21 @@ python sim/scripts/export_policy.py --checkpoint logs/runs/.../model_1500.pt
 The export produces a zip containing:
 - `policy.pt` — TorchScript model for deployment
 - `metadata.json` — observation/action dimensions, robot info, training config
+
+## Quick Start
+
+**Backend** (from project root):
+
+```bash
+cd a:\Projects\quadruped-drl-platform
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Frontend** (separate terminal):
+
+```bash
+cd a:\Projects\quadruped-drl-platform\frontend
+npm run dev
+```
+
+Then open http://localhost:5173
