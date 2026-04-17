@@ -4,8 +4,11 @@ import type {
   CheckpointResponse,
   DefaultConfig,
   EvaluateRequest,
+  ExportResponse,
+  RobotInfo,
   RunDetail,
   RunSummary,
+  TerrainInfo,
   TrainingStartRequest,
   TrainingStatusResponse,
 } from "../types";
@@ -77,6 +80,47 @@ export function scanCheckpoints(runId: number) {
 
 export function getDefaults() {
   return request<DefaultConfig>("/config/defaults");
+}
+
+// ─── Robots & Terrains ─────────────────────────────────────────────────────── //
+
+export function listRobots() {
+  return request<RobotInfo[]>("/config/robots");
+}
+
+export function listTerrains() {
+  return request<TerrainInfo[]>("/config/terrains");
+}
+
+export async function uploadRobot(name: string, urdf: File, metadata: File): Promise<RobotInfo> {
+  const form = new FormData();
+  form.append("name", name);
+  form.append("urdf", urdf);
+  form.append("metadata", metadata);
+  const res = await fetch(`${BASE}/config/upload-robot`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+export async function uploadTerrain(name: string, terrainYaml: File): Promise<TerrainInfo> {
+  const form = new FormData();
+  form.append("name", name);
+  form.append("terrain_yaml", terrainYaml);
+  const res = await fetch(`${BASE}/config/upload-terrain`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ─── Export ────────────────────────────────────────────────────────────────── //
+
+export function exportCheckpoint(checkpointId: number) {
+  return request<ExportResponse>(`/checkpoints/${checkpointId}/export`, {
+    method: "POST",
+  });
+}
+
+export function getExportDownloadUrl(checkpointId: number) {
+  return `${BASE}/checkpoints/${checkpointId}/download`;
 }
 
 // ─── Health ────────────────────────────────────────────────────────────────── //

@@ -1,0 +1,7 @@
+{
+    "name": "example_quadruped",
+    "foot_body_names": ["FL_foot", "FR_foot", "RL_foot", "RR_foot"],
+    "base_body_name": "base",
+    "standing_height": 0.34,
+    "num_legs": 4
+}

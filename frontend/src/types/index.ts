@@ -10,6 +10,8 @@ export interface TrainingStartRequest {
   max_iterations?: number;
   learning_rate?: number;
   headless?: boolean;
+  robot_name?: string | null;
+  terrain_preset?: string | null;
 }
 
 export interface TrainingStatusResponse {
@@ -78,4 +80,28 @@ export interface MetricEntry {
   metric_name: string;
   metric_value: number;
   timestamp: string;
+}
+
+export interface RobotInfo {
+  name: string;
+  path: string;
+  num_dof: number;
+  standing_height: number;
+  num_legs: number;
+  foot_body_names: string[];
+}
+
+export interface TerrainInfo {
+  name: string;
+  type: "preset" | "custom";
+  path: string | null;
+}
+
+export interface ExportResponse {
+  run_id: number;
+  checkpoint_id: number;
+  export_path: string;
+  obs_dim: number;
+  action_dim: number;
+  robot_name: string;
 }

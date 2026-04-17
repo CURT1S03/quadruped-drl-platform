@@ -76,3 +76,47 @@ export function useDefaults() {
     staleTime: Infinity,
   });
 }
+
+export function useRobots() {
+  return useQuery({
+    queryKey: ["robots"],
+    queryFn: api.listRobots,
+    staleTime: 30000,
+  });
+}
+
+export function useTerrains() {
+  return useQuery({
+    queryKey: ["terrains"],
+    queryFn: api.listTerrains,
+    staleTime: 30000,
+  });
+}
+
+export function useUploadRobot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, urdf, metadata }: { name: string; urdf: File; metadata: File }) =>
+      api.uploadRobot(name, urdf, metadata),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["robots"] });
+    },
+  });
+}
+
+export function useUploadTerrain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, terrainYaml }: { name: string; terrainYaml: File }) =>
+      api.uploadTerrain(name, terrainYaml),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["terrains"] });
+    },
+  });
+}
+
+export function useExportCheckpoint() {
+  return useMutation({
+    mutationFn: (checkpointId: number) => api.exportCheckpoint(checkpointId),
+  });
+}

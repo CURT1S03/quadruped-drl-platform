@@ -72,6 +72,25 @@ async def start_training(
 
     # Start subprocess
     try:
+        # Resolve robot config path if custom robot specified
+        robot_config_path = None
+        if req.robot_name:
+            from backend.config import settings as _settings
+            robot_dir = _settings.project_root / "sim" / "assets" / "robots" / req.robot_name
+            if not robot_dir.exists():
+                raise HTTPException(404, f"Robot '{req.robot_name}' not found")
+            robot_config_path = str(robot_dir)
+
+        # Resolve terrain config
+        terrain_config = None
+        if req.terrain_preset:
+            # Check if it's a custom YAML file
+            terrain_yaml = _settings.project_root / "sim" / "assets" / "terrains" / f"{req.terrain_preset}.yaml"
+            if terrain_yaml.exists():
+                terrain_config = str(terrain_yaml)
+            else:
+                terrain_config = req.terrain_preset  # Preset name
+
         log_dir = _sim_manager.start_training(
             run_id=run.id,
             task=req.task,
@@ -79,6 +98,9 @@ async def start_training(
             max_iterations=req.max_iterations,
             headless=req.headless,
             on_output=on_output,
+            robot_config=robot_config_path,
+            terrain_config=terrain_config,
+            learning_rate=req.learning_rate,
         )
     except RuntimeError as e:
         raise HTTPException(409, str(e))

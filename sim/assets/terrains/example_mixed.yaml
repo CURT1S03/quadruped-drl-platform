@@ -1,0 +1,42 @@
+# Custom Terrain Configuration
+#
+# Define terrain composition for training. Each sub_terrain entry specifies
+# a terrain generator type, its proportion (must sum to 1.0), and type-specific
+# parameters.
+#
+# Available terrain types:
+#   - MeshPyramidStairsTerrainCfg
+#   - MeshInvertedPyramidStairsTerrainCfg
+#   - MeshRandomGridTerrainCfg
+#   - HfRandomUniformTerrainCfg
+#   - HfPyramidSlopedTerrainCfg
+#   - HfInvertedPyramidSlopedTerrainCfg
+
+size: [8.0, 8.0]
+border_width: 20.0
+num_rows: 10
+num_cols: 20
+
+sub_terrains:
+  pyramid_stairs:
+    type: MeshPyramidStairsTerrainCfg
+    proportion: 0.3
+    step_height_range: [0.05, 0.15]
+    step_width: 0.3
+    platform_width: 3.0
+    border_width: 1.0
+    holes: false
+
+  random_rough:
+    type: HfRandomUniformTerrainCfg
+    proportion: 0.4
+    noise_range: [0.01, 0.05]
+    noise_step: 0.01
+    border_width: 0.25
+
+  slopes:
+    type: HfPyramidSlopedTerrainCfg
+    proportion: 0.3
+    slope_range: [0.0, 0.3]
+    platform_width: 2.0
+    border_width: 0.25

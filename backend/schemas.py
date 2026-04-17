@@ -19,6 +19,8 @@ class TrainingStartRequest(BaseModel):
     max_iterations: int = Field(default=1500, ge=1, le=100000)
     learning_rate: float = Field(default=1e-3, gt=0, le=1.0)
     headless: bool = Field(default=True)
+    robot_name: str | None = Field(default=None, description="Custom robot directory name (under sim/assets/robots/).")
+    terrain_preset: str | None = Field(default=None, description="Terrain preset name or custom terrain YAML filename.")
 
 
 class TrainingStatusResponse(BaseModel):
@@ -98,6 +100,32 @@ class DefaultConfig(BaseModel):
     default_max_iterations: int
     default_learning_rate: float = 1e-3
     terrain_types: list[str] = ["obstacle", "flat"]
+
+
+# ─── Robots & Terrains ────────────────────────────────────────────────────── #
+
+class RobotInfo(BaseModel):
+    name: str
+    path: str
+    num_dof: int
+    standing_height: float
+    num_legs: int
+    foot_body_names: list[str]
+
+
+class TerrainInfo(BaseModel):
+    name: str
+    type: str  # "preset" or "custom"
+    path: str | None = None
+
+
+class ExportResponse(BaseModel):
+    run_id: int
+    checkpoint_id: int
+    export_path: str
+    obs_dim: int
+    action_dim: int
+    robot_name: str
 
 
 # Forward reference resolution

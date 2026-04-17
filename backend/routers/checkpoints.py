@@ -1,19 +1,21 @@
 # Copyright (c) 2024, Quadruped DRL Training Platform
 # SPDX-License-Identifier: MIT
 
-"""Checkpoint router — list, inspect, and evaluate saved policy checkpoints."""
+"""Checkpoint router — list, inspect, evaluate, export, and download saved policy checkpoints."""
 
 from __future__ import annotations
 
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db import crud
 from backend.db.database import get_db
-from backend.schemas import CheckpointResponse, EvaluateRequest
+from backend.schemas import CheckpointResponse, EvaluateRequest, ExportResponse
 from backend.services.checkpoint_manager import scan_checkpoints
+from backend.services.export_manager import export_checkpoint, get_export_metadata
 from backend.services.sim_manager import SimManager, SimState
 
 router = APIRouter(prefix="/api/checkpoints", tags=["checkpoints"])
@@ -101,3 +103,66 @@ async def scan_and_register_checkpoints(
             created.append(ckpt)
 
     return {"scanned": len(disk_checkpoints), "new": len(created)}
+
+
+@router.post("/{checkpoint_id}/export", response_model=ExportResponse)
+async def export_policy(
+    checkpoint_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a checkpoint to a TorchScript policy bundle (.zip with policy.pt + metadata.json)."""
+    ckpt = await crud.get_checkpoint(db, checkpoint_id)
+    if not ckpt:
+        raise HTTPException(404, "Checkpoint not found")
+    if not os.path.isfile(ckpt.file_path):
+        raise HTTPException(404, f"Checkpoint file not found on disk: {ckpt.file_path}")
+
+    try:
+        export_path = export_checkpoint(ckpt.file_path)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    metadata = get_export_metadata(export_path) or {}
+
+    return ExportResponse(
+        run_id=ckpt.run_id,
+        checkpoint_id=checkpoint_id,
+        export_path=export_path,
+        obs_dim=metadata.get("obs_dim", 235),
+        action_dim=metadata.get("action_dim", 12),
+        robot_name=metadata.get("robot_name", "go2"),
+    )
+
+
+@router.get("/{checkpoint_id}/download")
+async def download_export(
+    checkpoint_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the exported policy bundle for a checkpoint."""
+    ckpt = await crud.get_checkpoint(db, checkpoint_id)
+    if not ckpt:
+        raise HTTPException(404, "Checkpoint not found")
+
+    # Look for existing export alongside the checkpoint
+    ckpt_dir = os.path.dirname(ckpt.file_path)
+    export_path = os.path.join(ckpt_dir, "exported_policy.zip")
+
+    if not os.path.isfile(export_path):
+        # Try to export on-demand
+        try:
+            export_path = export_checkpoint(ckpt.file_path)
+        except Exception as e:
+            raise HTTPException(500, f"Export failed: {e}")
+
+    if not os.path.isfile(export_path):
+        raise HTTPException(404, "Export file not found")
+
+    filename = f"policy_iter{ckpt.iteration}.zip"
+    return FileResponse(
+        path=export_path,
+        media_type="application/zip",
+        filename=filename,
+    )

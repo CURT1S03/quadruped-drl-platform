@@ -37,6 +37,9 @@ parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint
 parser.add_argument("--video", action="store_true", help="Record videos during training.")
 parser.add_argument("--video_length", type=int, default=200)
 parser.add_argument("--video_interval", type=int, default=2000)
+parser.add_argument("--robot_config", type=str, default=None, help="Path to custom robot directory (containing URDF + metadata.json).")
+parser.add_argument("--terrain_config", type=str, default=None, help="Terrain preset name or path to terrain YAML file.")
+parser.add_argument("--learning_rate", type=float, default=None, help="Override learning rate.")
 
 from isaaclab.app import AppLauncher
 
@@ -76,30 +79,104 @@ def main():
     # ---------------------------------------------------------------------- #
     # Resolve task configs via gymnasium registry                             #
     # ---------------------------------------------------------------------- #
-    task_entry = gym.spec(args_cli.task)
-    env_cfg_cls = task_entry.kwargs["env_cfg_entry_point"]
-    agent_cfg_cls = task_entry.kwargs["rsl_rl_cfg_entry_point"]
+    use_custom = args_cli.robot_config is not None
 
-    # Import the config classes
-    if isinstance(env_cfg_cls, str):
-        module_path, cls_name = env_cfg_cls.rsplit(":", 1)
-        import importlib
-        env_cfg: ManagerBasedRLEnvCfg = getattr(importlib.import_module(module_path), cls_name)()
-    else:
-        env_cfg = env_cfg_cls()
+    if use_custom:
+        # ── Custom robot path: build env config dynamically ──────────── #
+        from sim.envs.robot_loader import load_robot_metadata
+        from sim.envs.custom_env_cfg import build_custom_env_cfg, compute_obs_dim
+        from sim.terrains.terrain_presets import list_terrain_presets
 
-    if isinstance(agent_cfg_cls, str):
-        module_path, cls_name = agent_cfg_cls.rsplit(":", 1)
-        import importlib
-        agent_cfg: RslRlOnPolicyRunnerCfg = getattr(importlib.import_module(module_path), cls_name)()
+        robot_meta = load_robot_metadata(args_cli.robot_config)
+        print(f"[INFO] Custom robot: {robot_meta.name}, DOF: {robot_meta.num_dof}, height: {robot_meta.standing_height}m")
+
+        # Determine terrain
+        terrain_name = "obstacle"
+        terrain_yaml = None
+        if args_cli.terrain_config:
+            if os.path.isfile(args_cli.terrain_config):
+                terrain_yaml = args_cli.terrain_config
+                print(f"[INFO] Custom terrain YAML: {terrain_yaml}")
+            else:
+                terrain_name = args_cli.terrain_config
+                print(f"[INFO] Terrain preset: {terrain_name}")
+
+        use_height_scan = terrain_name != "flat" or terrain_yaml is not None
+        num_envs = args_cli.num_envs or 4096
+
+        env_cfg = build_custom_env_cfg(
+            robot_meta=robot_meta,
+            terrain_name=terrain_name,
+            terrain_yaml=terrain_yaml,
+            num_envs=num_envs,
+            use_height_scan=use_height_scan,
+        )
+
+        obs_dim = compute_obs_dim(robot_meta, use_height_scan=use_height_scan)
+        print(f"[INFO] Observation dim: {obs_dim}, Action dim: {robot_meta.num_dof}")
+
+        # Use Go2 PPO runner as base, adjust network dims for DOF
+        from sim.agents.go2_ppo_cfg import Go2PPORunnerCfg
+        agent_cfg = Go2PPORunnerCfg()
+        agent_cfg.experiment_name = f"custom_{robot_meta.name}"
+
+        # Register a temporary task for gymnasium
+        import gymnasium as gym
+        _custom_task_id = f"Custom-{robot_meta.name}-v0"
+        if _custom_task_id not in [spec.id for spec in gym.registry.values()]:
+            gym.register(
+                id=_custom_task_id,
+                entry_point="isaaclab.envs:ManagerBasedRLEnv",
+                disable_env_checker=True,
+                kwargs={},
+            )
+        task_id = _custom_task_id
+
+        # Save robot info as JSON metadata alongside training logs
+        _robot_info = {
+            "robot_name": robot_meta.name,
+            "robot_dir": str(args_cli.robot_config),
+            "num_dof": robot_meta.num_dof,
+            "standing_height": robot_meta.standing_height,
+            "foot_body_names": robot_meta.foot_body_names,
+            "base_body_name": robot_meta.base_body_name,
+            "terrain_name": terrain_name,
+            "terrain_yaml": terrain_yaml,
+            "obs_dim": obs_dim,
+            "action_dim": robot_meta.num_dof,
+            "use_height_scan": use_height_scan,
+        }
     else:
-        agent_cfg = agent_cfg_cls()
+        # ── Standard registered task path ────────────────────────────── #
+        task_id = args_cli.task
+        task_entry = gym.spec(task_id)
+        env_cfg_cls = task_entry.kwargs["env_cfg_entry_point"]
+        agent_cfg_cls = task_entry.kwargs["rsl_rl_cfg_entry_point"]
+
+        # Import the config classes
+        if isinstance(env_cfg_cls, str):
+            module_path, cls_name = env_cfg_cls.rsplit(":", 1)
+            import importlib
+            env_cfg: ManagerBasedRLEnvCfg = getattr(importlib.import_module(module_path), cls_name)()
+        else:
+            env_cfg = env_cfg_cls()
+
+        if isinstance(agent_cfg_cls, str):
+            module_path, cls_name = agent_cfg_cls.rsplit(":", 1)
+            import importlib
+            agent_cfg: RslRlOnPolicyRunnerCfg = getattr(importlib.import_module(module_path), cls_name)()
+        else:
+            agent_cfg = agent_cfg_cls()
+
+        _robot_info = None
 
     # CLI overrides
     if args_cli.num_envs is not None:
         env_cfg.scene.num_envs = args_cli.num_envs
     if args_cli.max_iterations is not None:
         agent_cfg.max_iterations = args_cli.max_iterations
+    if args_cli.learning_rate is not None:
+        agent_cfg.algorithm.learning_rate = args_cli.learning_rate
     env_cfg.seed = args_cli.seed
 
     # ---------------------------------------------------------------------- #
@@ -119,7 +196,10 @@ def main():
     # ---------------------------------------------------------------------- #
     # Create environment                                                      #
     # ---------------------------------------------------------------------- #
-    env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    if use_custom:
+        env = gym.make(task_id, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    else:
+        env = gym.make(task_id, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
     if args_cli.video:
         env = gym.wrappers.RecordVideo(
@@ -147,6 +227,13 @@ def main():
     # Save configs
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
+
+    # Save robot metadata for export pipeline
+    if _robot_info is not None:
+        robot_info_path = os.path.join(log_dir, "params", "robot_info.json")
+        with open(robot_info_path, "w") as f:
+            json.dump(_robot_info, f, indent=2)
+        print(f"[INFO] Robot metadata saved to: {robot_info_path}")
 
     # ---------------------------------------------------------------------- #
     # Train (with JSON telemetry output for backend parsing)                  #

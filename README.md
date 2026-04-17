@@ -112,3 +112,49 @@ python sim/scripts/export_policy.py --checkpoint logs/runs/.../model_1500.pt
 | POST | `/api/checkpoints/{id}/evaluate` | Run inference with checkpoint |
 | WS | `/ws/telemetry` | Live training metrics stream |
 | GET | `/api/config/defaults` | Default parameters |
+| GET | `/api/config/robots` | List available robots |
+| GET | `/api/config/terrains` | List terrain presets + custom |
+| POST | `/api/config/upload-robot` | Upload custom robot (URDF + metadata) |
+| POST | `/api/config/upload-terrain` | Upload custom terrain (YAML) |
+| POST | `/api/checkpoints/{id}/export` | Export policy as deployable zip |
+| GET | `/api/checkpoints/{id}/download` | Download exported policy bundle |
+
+## Custom Robots & Terrains
+
+### Import a Custom Robot
+
+1. Create a directory under `sim/assets/robots/<your-robot>/` with:
+   - `robot.urdf` — URDF model file
+   - `metadata.json` — robot metadata:
+     ```json
+     {
+       "name": "my_robot",
+       "foot_body_names": ["FL_foot", "FR_foot", "RL_foot", "RR_foot"],
+       "base_body_name": "base",
+       "standing_height": 0.34,
+       "num_legs": 4
+     }
+     ```
+2. Or upload via the dashboard (Training Controls → Upload Custom Robot / Terrain)
+3. Select the robot from the dropdown and start training
+
+### Import a Custom Terrain
+
+1. Create a YAML file under `sim/assets/terrains/` (see `example_mixed.yaml` for format)
+2. Or upload via the dashboard
+3. Select from the terrain dropdown
+
+### Export Trained Policy
+
+After training, export a deployable policy bundle:
+
+```bash
+# CLI
+python sim/scripts/export_policy.py --checkpoint logs/runs/.../model_1500.pt
+
+# Or click "Export" on any checkpoint in the dashboard
+```
+
+The export produces a zip containing:
+- `policy.pt` — TorchScript model for deployment
+- `metadata.json` — observation/action dimensions, robot info, training config

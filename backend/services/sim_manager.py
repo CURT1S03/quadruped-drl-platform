@@ -63,6 +63,9 @@ class SimManager:
         headless: bool = True,
         extra_args: dict | None = None,
         on_output: Callable[[str], None] | None = None,
+        robot_config: str | None = None,
+        terrain_config: str | None = None,
+        learning_rate: float | None = None,
     ) -> str:
         """Launch the training subprocess.
 
@@ -84,6 +87,12 @@ class SimManager:
             cmd.extend(["--max_iterations", str(max_iterations)])
         if log_dir:
             cmd.extend(["--log_dir", log_dir])
+        if robot_config:
+            cmd.extend(["--robot_config", robot_config])
+        if terrain_config:
+            cmd.extend(["--terrain_config", terrain_config])
+        if learning_rate is not None:
+            cmd.extend(["--learning_rate", str(learning_rate)])
 
         resolved_log_dir = log_dir or str(
             settings.log_dir / f"run_{run_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"

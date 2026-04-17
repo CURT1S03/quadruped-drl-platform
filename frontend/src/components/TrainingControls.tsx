@@ -1,6 +1,14 @@
-import { useState } from "react";
-import { Play, Square } from "lucide-react";
-import { useStartTraining, useStopTraining, useDefaults } from "../hooks/useTrainingApi";
+import { useRef, useState } from "react";
+import { Play, Square, Upload } from "lucide-react";
+import {
+  useStartTraining,
+  useStopTraining,
+  useDefaults,
+  useRobots,
+  useTerrains,
+  useUploadRobot,
+  useUploadTerrain,
+} from "../hooks/useTrainingApi";
 import type { SimState, TrainingStartRequest } from "../types";
 
 interface Props {
@@ -9,8 +17,16 @@ interface Props {
 
 export function TrainingControls({ simState }: Props) {
   const { data: defaults } = useDefaults();
+  const { data: robots } = useRobots();
+  const { data: terrains } = useTerrains();
   const startMutation = useStartTraining();
   const stopMutation = useStopTraining();
+  const uploadRobotMutation = useUploadRobot();
+  const uploadTerrainMutation = useUploadTerrain();
+
+  const urdfInputRef = useRef<HTMLInputElement>(null);
+  const metadataInputRef = useRef<HTMLInputElement>(null);
+  const terrainInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState<TrainingStartRequest>({
     name: "",
@@ -19,17 +35,62 @@ export function TrainingControls({ simState }: Props) {
     max_iterations: 1500,
     learning_rate: 0.001,
     headless: true,
+    robot_name: null,
+    terrain_preset: null,
   });
 
+  const [uploadRobotName, setUploadRobotName] = useState("");
+  const [uploadTerrainName, setUploadTerrainName] = useState("");
+
   const isRunning = simState === "training" || simState === "evaluating";
+  const useCustomRobot = form.robot_name !== null && form.robot_name !== "";
 
   const handleStart = () => {
-    startMutation.mutate({ ...form, name: form.name || undefined });
+    startMutation.mutate({
+      ...form,
+      name: form.name || undefined,
+      robot_name: useCustomRobot ? form.robot_name : undefined,
+      terrain_preset: form.terrain_preset || undefined,
+    });
   };
 
   const handleStop = () => {
     stopMutation.mutate();
   };
+
+  const handleUploadRobot = () => {
+    const urdfFile = urdfInputRef.current?.files?.[0];
+    const metaFile = metadataInputRef.current?.files?.[0];
+    if (!urdfFile || !metaFile || !uploadRobotName) return;
+    uploadRobotMutation.mutate(
+      { name: uploadRobotName, urdf: urdfFile, metadata: metaFile },
+      {
+        onSuccess: (robot) => {
+          setForm({ ...form, robot_name: robot.name });
+          setUploadRobotName("");
+          if (urdfInputRef.current) urdfInputRef.current.value = "";
+          if (metadataInputRef.current) metadataInputRef.current.value = "";
+        },
+      }
+    );
+  };
+
+  const handleUploadTerrain = () => {
+    const file = terrainInputRef.current?.files?.[0];
+    if (!file || !uploadTerrainName) return;
+    uploadTerrainMutation.mutate(
+      { name: uploadTerrainName, terrainYaml: file },
+      {
+        onSuccess: (terrain) => {
+          setForm({ ...form, terrain_preset: terrain.name });
+          setUploadTerrainName("");
+          if (terrainInputRef.current) terrainInputRef.current.value = "";
+        },
+      }
+    );
+  };
+
+  const selectedRobot = robots?.find((r) => r.name === form.robot_name);
 
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
@@ -123,7 +184,135 @@ export function TrainingControls({ simState }: Props) {
             Headless
           </label>
         </div>
+
+        {/* Robot selector */}
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">Robot</label>
+          <select
+            className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm"
+            value={form.robot_name ?? ""}
+            onChange={(e) =>
+              setForm({ ...form, robot_name: e.target.value || null })
+            }
+            disabled={isRunning}
+          >
+            <option value="">Default (Go2)</option>
+            {robots?.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.name} ({r.num_dof} DOF)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Terrain selector */}
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">Terrain</label>
+          <select
+            className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm"
+            value={form.terrain_preset ?? ""}
+            onChange={(e) =>
+              setForm({ ...form, terrain_preset: e.target.value || null })
+            }
+            disabled={isRunning}
+          >
+            <option value="">Default (obstacle)</option>
+            {terrains?.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}{t.is_custom ? " (custom)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
+
+      {/* Upload sections */}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-300">
+          Upload Custom Robot / Terrain
+        </summary>
+        <div className="mt-2 space-y-3 rounded border border-gray-800 bg-gray-800/50 p-3">
+          {/* Upload robot */}
+          <div>
+            <p className="mb-1 text-xs font-medium text-gray-400">Upload Robot (URDF + metadata.json)</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="w-28 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs"
+                placeholder="Robot name"
+                value={uploadRobotName}
+                onChange={(e) => setUploadRobotName(e.target.value)}
+              />
+              <input ref={urdfInputRef} type="file" accept=".urdf,.xml" className="hidden" />
+              <button
+                type="button"
+                onClick={() => urdfInputRef.current?.click()}
+                className="rounded border border-gray-700 px-2 py-1 text-xs hover:bg-gray-700"
+              >
+                URDF
+              </button>
+              <input ref={metadataInputRef} type="file" accept=".json" className="hidden" />
+              <button
+                type="button"
+                onClick={() => metadataInputRef.current?.click()}
+                className="rounded border border-gray-700 px-2 py-1 text-xs hover:bg-gray-700"
+              >
+                metadata.json
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadRobot}
+                disabled={uploadRobotMutation.isPending}
+                className="flex items-center gap-1 rounded bg-nvidia/80 px-2 py-1 text-xs font-medium text-black hover:bg-nvidia disabled:opacity-40"
+              >
+                <Upload size={12} /> Upload
+              </button>
+            </div>
+            {uploadRobotMutation.isError && (
+              <p className="mt-1 text-xs text-red-400">{String(uploadRobotMutation.error)}</p>
+            )}
+          </div>
+
+          {/* Upload terrain */}
+          <div>
+            <p className="mb-1 text-xs font-medium text-gray-400">Upload Terrain (YAML)</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="w-28 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs"
+                placeholder="Terrain name"
+                value={uploadTerrainName}
+                onChange={(e) => setUploadTerrainName(e.target.value)}
+              />
+              <input ref={terrainInputRef} type="file" accept=".yaml,.yml" className="hidden" />
+              <button
+                type="button"
+                onClick={() => terrainInputRef.current?.click()}
+                className="rounded border border-gray-700 px-2 py-1 text-xs hover:bg-gray-700"
+              >
+                YAML file
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadTerrain}
+                disabled={uploadTerrainMutation.isPending}
+                className="flex items-center gap-1 rounded bg-nvidia/80 px-2 py-1 text-xs font-medium text-black hover:bg-nvidia disabled:opacity-40"
+              >
+                <Upload size={12} /> Upload
+              </button>
+            </div>
+            {uploadTerrainMutation.isError && (
+              <p className="mt-1 text-xs text-red-400">{String(uploadTerrainMutation.error)}</p>
+            )}
+          </div>
+        </div>
+      </details>
+
+      {selectedRobot && (
+        <p className="mt-2 text-xs text-gray-500">
+          Robot: {selectedRobot.name} · {selectedRobot.num_dof} DOF · {selectedRobot.num_legs} legs
+        </p>
+      )}
 
       {/* Action buttons */}
       <div className="mt-4 flex gap-2">

@@ -1,6 +1,7 @@
-import { Play } from "lucide-react";
+import { Download, Package, Play } from "lucide-react";
 import type { CheckpointResponse } from "../types";
-import { useEvaluateCheckpoint } from "../hooks/useTrainingApi";
+import { useEvaluateCheckpoint, useExportCheckpoint } from "../hooks/useTrainingApi";
+import { getExportDownloadUrl } from "../api/client";
 
 interface Props {
   checkpoints: CheckpointResponse[];
@@ -9,6 +10,7 @@ interface Props {
 
 export function CheckpointTable({ checkpoints, disabled }: Props) {
   const evaluateMutation = useEvaluateCheckpoint();
+  const exportMutation = useExportCheckpoint();
 
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
@@ -41,7 +43,7 @@ export function CheckpointTable({ checkpoints, disabled }: Props) {
                   <td className="py-2 pr-4 text-gray-500">
                     {new Date(ckpt.created_at).toLocaleString()}
                   </td>
-                  <td className="py-2">
+                  <td className="py-2 flex gap-1">
                     <button
                       onClick={() => evaluateMutation.mutate({ id: ckpt.id })}
                       disabled={disabled || evaluateMutation.isPending}
@@ -50,6 +52,21 @@ export function CheckpointTable({ checkpoints, disabled }: Props) {
                       <Play size={12} />
                       Evaluate
                     </button>
+                    <button
+                      onClick={() => exportMutation.mutate({ id: ckpt.id })}
+                      disabled={disabled || exportMutation.isPending}
+                      className="inline-flex items-center gap-1 rounded bg-green-600/20 px-2 py-1 text-xs text-green-400 transition hover:bg-green-600/30 disabled:opacity-40"
+                    >
+                      <Package size={12} />
+                      Export
+                    </button>
+                    <a
+                      href={getExportDownloadUrl(ckpt.id)}
+                      className="inline-flex items-center gap-1 rounded bg-gray-600/20 px-2 py-1 text-xs text-gray-400 transition hover:bg-gray-600/30"
+                    >
+                      <Download size={12} />
+                      Download
+                    </a>
                   </td>
                 </tr>
               ))}
