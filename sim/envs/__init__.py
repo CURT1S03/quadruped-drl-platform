@@ -1,0 +1,1 @@
+from .go2_obstacle_env_cfg import Go2ObstacleEnvCfg

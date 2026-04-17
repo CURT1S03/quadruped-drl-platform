@@ -1,0 +1,1 @@
+from .obstacle_terrain_cfg import OBSTACLE_TERRAINS_CFG
